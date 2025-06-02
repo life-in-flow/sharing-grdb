@@ -16,7 +16,7 @@
       "location" : "https://github.com/life-in-flow/GRDB.swift",
       "state" : {
         "branch" : "sqlcipher",
-        "revision" : "ffe83dfd106dad77084788228012ccb016195caa"
+        "revision" : "bd0dc34e47cd100ab8962d0ba23d554a140240b0"
       }
     },
     {
