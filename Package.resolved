@@ -1,5 +1,5 @@
 {
-  "originHash" : "76b717c84601ef368a42bb891762870dd8cd05629c88855f3e8d2c7e0ddde906",
+  "originHash" : "8342f0c389fa35343a70f30d131d7d0d3724ecd063acc9f966bf17304a88fbc5",
   "pins" : [
     {
       "identity" : "combine-schedulers",
@@ -16,7 +16,7 @@
       "location" : "https://github.com/life-in-flow/GRDB.swift",
       "state" : {
         "branch" : "sqlcipher",
-        "revision" : "bd0dc34e47cd100ab8962d0ba23d554a140240b0"
+        "revision" : "e220cd06c6bf01936c9455b808d5f10fcce11b28"
       }
     },
     {

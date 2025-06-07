@@ -29,7 +29,7 @@ let package = Package(
     ),
   ],
   dependencies: [
-    .package(url: "https://github.com/life-in-flow/GRDB.swift", branch: "sqlcipher"),
+    .package(url: "https://github.com/life-in-flow/GRDB.swift", branch: "sqlcipher"), // SQLCipher + GRDB 7.4.1 source compilation
     .package(url: "https://github.com/pointfreeco/swift-dependencies", from: "1.9.0"),
     .package(url: "https://github.com/pointfreeco/xctest-dynamic-overlay", from: "1.5.0"),
     .package(url: "https://github.com/pointfreeco/swift-sharing", from: "2.3.0"),
