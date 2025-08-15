@@ -69,6 +69,16 @@ public struct FetchOne<Value: Sendable>: Sendable {
 
   /// Initializes this property with a wrapped value.
   ///
+  /// - Parameter wrappedValue: A default value to associate with this property.
+  @_disfavoredOverload
+  public init(
+    wrappedValue: sending Value
+  ) {
+    sharedReader = SharedReader(value: wrappedValue)
+  }
+
+  /// Initializes this property with a query that fetches the first row from a table.
+  ///
   /// - Parameters:
   ///   - wrappedValue: A default value to associate with this property.
   ///   - database: The database to read from. A value of `nil` will use the default database
@@ -76,18 +86,37 @@ public struct FetchOne<Value: Sendable>: Sendable {
   public init(
     wrappedValue: sending Value,
     database: (any DatabaseReader)? = nil
-  ) {
-    sharedReader = SharedReader(value: wrappedValue)
+  )
+  where
+    Value: StructuredQueriesCore.Table & QueryRepresentable, Value.QueryOutput == Value
+  {
+    let statement = Value.all.selectStar().asSelect().limit(1)
+    sharedReader = SharedReader(
+      wrappedValue: wrappedValue,
+      .fetch(FetchOneStatementValueRequest(statement: statement), database: database)
+    )
   }
 
-  /// Initializes this property with a wrapped value.
+  /// Initializes this property with a query that fetches the first row from a table.
   ///
-  /// - Parameters database: The database to read from. A value of `nil` will use the default
-  ///   database (`@Dependency(\.defaultDatabase)`).
-  public init<Wrapped>(
+  /// - Parameters:
+  ///   - wrappedValue: A default value to associate with this property.
+  ///   - database: The database to read from. A value of `nil` will use the default database
+  ///     (`@Dependency(\.defaultDatabase)`).
+  public init(
+    wrappedValue: sending Value,
     database: (any DatabaseReader)? = nil
-  ) where Value == Wrapped? {
-    self.init(wrappedValue: nil, database: database)
+  )
+  where
+    Value: _OptionalProtocol,
+    Value: StructuredQueriesCore.Table,
+    Value.QueryOutput == Value
+  {
+    let statement = Value.all.selectStar().asSelect().limit(1)
+    sharedReader = SharedReader(
+      wrappedValue: wrappedValue,
+      .fetch(FetchOneStatementOptionalProtocolRequest(statement: statement), database: database)
+    )
   }
 
   /// Initializes this property with a query associated with the wrapped value.
@@ -98,7 +127,7 @@ public struct FetchOne<Value: Sendable>: Sendable {
   ///   - database: The database to read from. A value of `nil` will use the default database
   ///     (`@Dependency(\.defaultDatabase)`).
   public init<S: SelectStatement>(
-    wrappedValue: S.From.QueryOutput,
+    wrappedValue: Value,
     _ statement: S,
     database: (any DatabaseReader)? = nil
   )
@@ -119,7 +148,7 @@ public struct FetchOne<Value: Sendable>: Sendable {
   ///   - database: The database to read from. A value of `nil` will use the default database
   ///     (`@Dependency(\.defaultDatabase)`).
   public init<V: QueryRepresentable>(
-    wrappedValue: V.QueryOutput,
+    wrappedValue: Value,
     _ statement: some StructuredQueriesCore.Statement<V>,
     database: (any DatabaseReader)? = nil
   )
@@ -128,10 +157,28 @@ public struct FetchOne<Value: Sendable>: Sendable {
   {
     sharedReader = SharedReader(
       wrappedValue: wrappedValue,
-      .fetch(
-        FetchOneStatementValueRequest(statement: statement),
-        database: database
-      )
+      .fetch(FetchOneStatementValueRequest(statement: statement), database: database)
+    )
+  }
+
+  /// Initializes this property with a query associated with the wrapped value.
+  ///
+  /// - Parameters:
+  ///   - wrappedValue: A default value to associate with this property.
+  ///   - statement: A query associated with the wrapped value.
+  ///   - database: The database to read from. A value of `nil` will use the default database
+  ///     (`@Dependency(\.defaultDatabase)`).
+  public init<V: QueryRepresentable>(
+    wrappedValue: Value = nil,
+    _ statement: some StructuredQueriesCore.Statement<V>,
+    database: (any DatabaseReader)? = nil
+  )
+  where
+    Value == V.QueryOutput?
+  {
+    sharedReader = SharedReader(
+      wrappedValue: wrappedValue,
+      .fetch(FetchOneStatementOptionalValueRequest(statement: statement), database: database)
     )
   }
 
@@ -153,30 +200,33 @@ public struct FetchOne<Value: Sendable>: Sendable {
   {
     sharedReader = SharedReader(
       wrappedValue: wrappedValue,
-      .fetch(
-        FetchOneStatementValueRequest(statement: statement),
-        database: database
-      )
+      .fetch(FetchOneStatementValueRequest(statement: statement), database: database)
     )
   }
 
   /// Initializes this property with a query associated with an optional value.
   ///
   /// - Parameters:
+  ///   - wrappedValue: A default value to associate with this property.
   ///   - statement: A query associated with the wrapped value.
   ///   - database: The database to read from. A value of `nil` will use the default database
   ///     (`@Dependency(\.defaultDatabase)`).
   public init<S: SelectStatement>(
+    wrappedValue: Value = ._none,
     _ statement: S,
     database: (any DatabaseReader)? = nil
   )
   where
+    Value: _OptionalProtocol,
     Value == S.From.QueryOutput?,
     S.QueryValue == (),
     S.Joins == ()
   {
     let statement = statement.selectStar().asSelect().limit(1)
-    self.init(statement, database: database)
+    sharedReader = SharedReader(
+      wrappedValue: wrappedValue,
+      .fetch(FetchOneStatementOptionalValueRequest(statement: statement), database: database)
+    )
   }
 
   /// Initializes this property with a query associated with an optional value.
@@ -187,17 +237,22 @@ public struct FetchOne<Value: Sendable>: Sendable {
   ///   - database: The database to read from. A value of `nil` will use the default database
   ///     (`@Dependency(\.defaultDatabase)`).
   public init<S: StructuredQueriesCore.Statement>(
+    wrappedValue: Value = ._none,
     _ statement: S,
     database: (any DatabaseReader)? = nil
   )
   where
+    Value: _OptionalProtocol,
     S.QueryValue: QueryRepresentable,
-    Value == S.QueryValue.QueryOutput?
+    S.QueryValue: _OptionalProtocol,
+    Value == S.QueryValue.QueryOutput
   {
-    self.init(
-      wrappedValue: nil,
-      SQLQueryExpression(statement.query, as: S.QueryValue?.self),
-      database: database
+    sharedReader = SharedReader(
+      wrappedValue: wrappedValue,
+      .fetch(
+        FetchOneStatementOptionalProtocolRequest(statement: statement),
+        database: database
+      )
     )
   }
 
@@ -208,18 +263,19 @@ public struct FetchOne<Value: Sendable>: Sendable {
   ///   - statement: A query associated with the wrapped value.
   ///   - database: The database to read from. A value of `nil` will use the default database
   ///     (`@Dependency(\.defaultDatabase)`).
-  public init<V: QueryRepresentable>(
-    _ statement: some StructuredQueriesCore.Statement<V>,
+  public init(
+    wrappedValue: Value = ._none,
+    _ statement: some StructuredQueriesCore.Statement<Value>,
     database: (any DatabaseReader)? = nil
   )
   where
-    V.QueryOutput == V,
-    Value == V?
+    Value: QueryRepresentable,
+    Value: _OptionalProtocol,
+    Value.QueryOutput == Value
   {
-    self.init(
-      wrappedValue: nil,
-      SQLQueryExpression(statement.query, as: V?.self),
-      database: database
+    sharedReader = SharedReader(
+      wrappedValue: wrappedValue,
+      .fetch(FetchOneStatementOptionalProtocolRequest(statement: statement), database: database)
     )
   }
 
@@ -256,26 +312,160 @@ public struct FetchOne<Value: Sendable>: Sendable {
     Value == V.QueryOutput
   {
     try await sharedReader.load(
-      .fetch(
-        FetchOneStatementValueRequest(statement: statement),
-        database: database
-      )
+      .fetch(FetchOneStatementValueRequest(statement: statement), database: database)
+    )
+  }
+
+  /// Replaces the wrapped value with data from the given query.
+  ///
+  /// - Parameters:
+  ///   - statement: A query associated with the wrapped value.
+  ///   - database: The database to read from. A value of `nil` will use the default database
+  ///     (`@Dependency(\.defaultDatabase)`).
+  public func load<V: QueryRepresentable>(
+    _ statement: some StructuredQueriesCore.Statement<V>,
+    database: (any DatabaseReader)? = nil
+  ) async throws
+  where
+    Value == V.QueryOutput?
+  {
+    try await sharedReader.load(
+      .fetch(FetchOneStatementOptionalValueRequest(statement: statement), database: database)
+    )
+  }
+
+  /// Replaces the wrapped value with data from the given query.
+  ///
+  /// - Parameters:
+  ///   - statement: A query associated with the wrapped value.
+  ///   - database: The database to read from. A value of `nil` will use the default database
+  ///     (`@Dependency(\.defaultDatabase)`).
+  public func load<S: SelectStatement>(
+    _ statement: S,
+    database: (any DatabaseReader)? = nil
+  ) async throws
+  where
+    Value: _OptionalProtocol,
+    Value == S.From.QueryOutput?,
+    S.QueryValue == (),
+    S.Joins == ()
+  {
+    let statement = statement.selectStar().asSelect().limit(1)
+    try await sharedReader.load(
+      .fetch(FetchOneStatementOptionalValueRequest(statement: statement), database: database)
+    )
+  }
+
+  /// Replaces the wrapped value with data from the given query.
+  ///
+  /// - Parameters:
+  ///   - statement: A query associated with the wrapped value.
+  ///   - database: The database to read from. A value of `nil` will use the default database
+  ///     (`@Dependency(\.defaultDatabase)`).
+  public func load<S: StructuredQueriesCore.Statement>(
+    _ statement: S,
+    database: (any DatabaseReader)? = nil
+  ) async throws
+  where
+    Value: _OptionalProtocol,
+    S.QueryValue: QueryRepresentable,
+    S.QueryValue: _OptionalProtocol,
+    Value == S.QueryValue.QueryOutput
+  {
+    try await sharedReader.load(
+      .fetch(FetchOneStatementOptionalProtocolRequest(statement: statement), database: database)
+    )
+  }
+
+  /// Replaces the wrapped value with data from the given query.
+  ///
+  /// - Parameters:
+  ///   - statement: A query associated with the wrapped value.
+  ///   - database: The database to read from. A value of `nil` will use the default database
+  ///     (`@Dependency(\.defaultDatabase)`).
+  public func load(
+    _ statement: some StructuredQueriesCore.Statement<Value>,
+    database: (any DatabaseReader)? = nil
+  ) async throws
+  where
+    Value: QueryRepresentable,
+    Value: _OptionalProtocol,
+    Value.QueryOutput == Value
+  {
+    try await sharedReader.load(
+      .fetch(FetchOneStatementOptionalProtocolRequest(statement: statement), database: database)
     )
   }
 }
 
-/// Initializes this property with a query associated with the wrapped value.
-///
-/// - Parameters:
-///   - wrappedValue: A default value to associate with this property.
-///   - statement: A query associated with the wrapped value.
-///   - database: The database to read from. A value of `nil` will use the default database
-///     (`@Dependency(\.defaultDatabase)`).
-///   - scheduler: The scheduler to observe from. By default, database observation is performed
-///     asynchronously on the main queue.
 extension FetchOne {
+  /// Initializes this property with a query that fetches the first row from a table.
+  ///
+  /// - Parameters:
+  ///   - wrappedValue: A default value to associate with this property.
+  ///   - database: The database to read from. A value of `nil` will use the default database
+  ///     (`@Dependency(\.defaultDatabase)`).
+  ///   - scheduler: The scheduler to observe from. By default, database observation is performed
+  ///     asynchronously on the main queue.
+  public init(
+    wrappedValue: sending Value,
+    database: (any DatabaseReader)? = nil,
+    scheduler: some ValueObservationScheduler & Hashable
+  )
+  where
+    Value: StructuredQueriesCore.Table & QueryRepresentable, Value.QueryOutput == Value
+  {
+    let statement = Value.all.selectStar().asSelect().limit(1)
+    sharedReader = SharedReader(
+      wrappedValue: wrappedValue,
+      .fetch(
+        FetchOneStatementValueRequest(statement: statement),
+        database: database,
+        scheduler: scheduler
+      )
+    )
+  }
+
+  /// Initializes this property with a query that fetches the first row from a table.
+  ///
+  /// - Parameters:
+  ///   - wrappedValue: A default value to associate with this property.
+  ///   - database: The database to read from. A value of `nil` will use the default database
+  ///     (`@Dependency(\.defaultDatabase)`).
+  ///   - scheduler: The scheduler to observe from. By default, database observation is performed
+  ///     asynchronously on the main queue.
+  public init(
+    wrappedValue: sending Value,
+    database: (any DatabaseReader)? = nil,
+    scheduler: some ValueObservationScheduler & Hashable
+  )
+  where
+    Value: _OptionalProtocol,
+    Value: StructuredQueriesCore.Table,
+    Value.QueryOutput == Value
+  {
+    let statement = Value.all.selectStar().asSelect().limit(1)
+    sharedReader = SharedReader(
+      wrappedValue: wrappedValue,
+      .fetch(
+        FetchOneStatementOptionalProtocolRequest(statement: statement),
+        database: database,
+        scheduler: scheduler
+      )
+    )
+  }
+
+  /// Initializes this property with a query associated with the wrapped value.
+  ///
+  /// - Parameters:
+  ///   - wrappedValue: A default value to associate with this property.
+  ///   - statement: A query associated with the wrapped value.
+  ///   - database: The database to read from. A value of `nil` will use the default database
+  ///     (`@Dependency(\.defaultDatabase)`).
+  ///   - scheduler: The scheduler to observe from. By default, database observation is performed
+  ///     asynchronously on the main queue.
   public init<S: SelectStatement>(
-    wrappedValue: S.From.QueryOutput,
+    wrappedValue: Value,
     _ statement: S,
     database: (any DatabaseReader)? = nil,
     scheduler: some ValueObservationScheduler & Hashable
@@ -299,7 +489,7 @@ extension FetchOne {
   ///   - scheduler: The scheduler to observe from. By default, database observation is performed
   ///     asynchronously on the main queue.
   public init<V: QueryRepresentable>(
-    wrappedValue: V.QueryOutput,
+    wrappedValue: Value,
     _ statement: some StructuredQueriesCore.Statement<V>,
     database: (any DatabaseReader)? = nil,
     scheduler: some ValueObservationScheduler & Hashable
@@ -311,6 +501,34 @@ extension FetchOne {
       wrappedValue: wrappedValue,
       .fetch(
         FetchOneStatementValueRequest(statement: statement),
+        database: database,
+        scheduler: scheduler
+      )
+    )
+  }
+
+  /// Initializes this property with a query associated with the wrapped value.
+  ///
+  /// - Parameters:
+  ///   - wrappedValue: A default value to associate with this property.
+  ///   - statement: A query associated with the wrapped value.
+  ///   - database: The database to read from. A value of `nil` will use the default database
+  ///     (`@Dependency(\.defaultDatabase)`).
+  ///   - scheduler: The scheduler to observe from. By default, database observation is performed
+  ///     asynchronously on the main queue.
+  public init<V: QueryRepresentable>(
+    wrappedValue: Value = nil,
+    _ statement: some StructuredQueriesCore.Statement<V>,
+    database: (any DatabaseReader)? = nil,
+    scheduler: some ValueObservationScheduler & Hashable
+  )
+  where
+    Value == V.QueryOutput?
+  {
+    sharedReader = SharedReader(
+      wrappedValue: wrappedValue,
+      .fetch(
+        FetchOneStatementOptionalValueRequest(statement: statement),
         database: database,
         scheduler: scheduler
       )
@@ -349,48 +567,32 @@ extension FetchOne {
   /// Initializes this property with a query associated with an optional value.
   ///
   /// - Parameters:
-  ///   - statement: A query associated with the wrapped value.
-  ///   - database: The database to read from. A value of `nil` will use the default database
-  ///     (`@Dependency(\.defaultDatabase)`).
-  ///   - scheduler: The scheduler to observe from. By default, database observation is performed
-  ///     asynchronously on the main queue.
-  public init<S: SelectStatement>(
-    _ statement: S,
-    database: (any DatabaseReader)? = nil,
-    scheduler: some ValueObservationScheduler & Hashable
-  )
-  where
-    Value == S.From.QueryOutput?,
-    S.QueryValue == (),
-    S.Joins == ()
-  {
-    let statement = statement.selectStar().asSelect().limit(1)
-    self.init(statement, database: database, scheduler: scheduler)
-  }
-
-  /// Initializes this property with a query associated with an optional value.
-  ///
-  /// - Parameters:
   ///   - wrappedValue: A default value to associate with this property.
   ///   - statement: A query associated with the wrapped value.
   ///   - database: The database to read from. A value of `nil` will use the default database
   ///     (`@Dependency(\.defaultDatabase)`).
   ///   - scheduler: The scheduler to observe from. By default, database observation is performed
   ///     asynchronously on the main queue.
-  public init<S: StructuredQueriesCore.Statement>(
+  public init<S: SelectStatement>(
+    wrappedValue: Value = ._none,
     _ statement: S,
     database: (any DatabaseReader)? = nil,
     scheduler: some ValueObservationScheduler & Hashable
   )
   where
-    S.QueryValue: QueryRepresentable,
-    Value == S.QueryValue.QueryOutput?
+    Value: _OptionalProtocol,
+    Value == S.From.QueryOutput?,
+    S.QueryValue == (),
+    S.Joins == ()
   {
-    self.init(
-      wrappedValue: nil,
-      SQLQueryExpression(statement.query, as: S.QueryValue?.self),
-      database: database,
-      scheduler: scheduler
+    let statement = statement.selectStar().asSelect().limit(1)
+    sharedReader = SharedReader(
+      wrappedValue: wrappedValue,
+      .fetch(
+        FetchOneStatementOptionalValueRequest(statement: statement),
+        database: database,
+        scheduler: scheduler
+      )
     )
   }
 
@@ -403,20 +605,55 @@ extension FetchOne {
   ///     (`@Dependency(\.defaultDatabase)`).
   ///   - scheduler: The scheduler to observe from. By default, database observation is performed
   ///     asynchronously on the main queue.
-  public init<V: QueryRepresentable>(
-    _ statement: some StructuredQueriesCore.Statement<V>,
+  public init<S: StructuredQueriesCore.Statement>(
+    wrappedValue: Value = ._none,
+    _ statement: S,
     database: (any DatabaseReader)? = nil,
     scheduler: some ValueObservationScheduler & Hashable
   )
   where
-    V.QueryOutput == V,
-    Value == V?
+    Value: _OptionalProtocol,
+    S.QueryValue: QueryRepresentable,
+    S.QueryValue: _OptionalProtocol,
+    Value == S.QueryValue.QueryOutput
   {
-    self.init(
-      wrappedValue: nil,
-      SQLQueryExpression(statement.query, as: V?.self),
-      database: database,
-      scheduler: scheduler
+    sharedReader = SharedReader(
+      wrappedValue: wrappedValue,
+      .fetch(
+        FetchOneStatementOptionalProtocolRequest(statement: statement),
+        database: database,
+        scheduler: scheduler
+      )
+    )
+  }
+
+  /// Initializes this property with a query associated with an optional value.
+  ///
+  /// - Parameters:
+  ///   - wrappedValue: A default value to associate with this property.
+  ///   - statement: A query associated with the wrapped value.
+  ///   - database: The database to read from. A value of `nil` will use the default database
+  ///     (`@Dependency(\.defaultDatabase)`).
+  ///   - scheduler: The scheduler to observe from. By default, database observation is performed
+  ///     asynchronously on the main queue.
+  public init(
+    wrappedValue: Value = ._none,
+    _ statement: some StructuredQueriesCore.Statement<Value>,
+    database: (any DatabaseReader)? = nil,
+    scheduler: some ValueObservationScheduler & Hashable
+  )
+  where
+    Value: QueryRepresentable,
+    Value: _OptionalProtocol,
+    Value.QueryOutput == Value
+  {
+    sharedReader = SharedReader(
+      wrappedValue: wrappedValue,
+      .fetch(
+        FetchOneStatementOptionalProtocolRequest(statement: statement),
+        database: database,
+        scheduler: scheduler
+      )
     )
   }
 
@@ -466,6 +703,115 @@ extension FetchOne {
       )
     )
   }
+
+  /// Replaces the wrapped value with data from the given query.
+  ///
+  /// - Parameters:
+  ///   - statement: A query associated with the wrapped value.
+  ///   - database: The database to read from. A value of `nil` will use the default database
+  ///     (`@Dependency(\.defaultDatabase)`).
+  ///   - scheduler: The scheduler to observe from. By default, database observation is performed
+  ///     asynchronously on the main queue.
+  public func load<V: QueryRepresentable>(
+    _ statement: some StructuredQueriesCore.Statement<V>,
+    database: (any DatabaseReader)? = nil,
+    scheduler: some ValueObservationScheduler & Hashable
+  ) async throws
+  where
+    Value == V.QueryOutput?
+  {
+    try await sharedReader.load(
+      .fetch(
+        FetchOneStatementOptionalValueRequest(statement: statement),
+        database: database,
+        scheduler: scheduler
+      )
+    )
+  }
+
+  /// Replaces the wrapped value with data from the given query.
+  ///
+  /// - Parameters:
+  ///   - statement: A query associated with the wrapped value.
+  ///   - database: The database to read from. A value of `nil` will use the default database
+  ///     (`@Dependency(\.defaultDatabase)`).
+  ///   - scheduler: The scheduler to observe from. By default, database observation is performed
+  ///     asynchronously on the main queue.
+  public func load<S: SelectStatement>(
+    _ statement: S,
+    database: (any DatabaseReader)? = nil,
+    scheduler: some ValueObservationScheduler & Hashable
+  ) async throws
+  where
+    Value: _OptionalProtocol,
+    Value == S.From.QueryOutput?,
+    S.QueryValue == (),
+    S.Joins == ()
+  {
+    let statement = statement.selectStar().asSelect().limit(1)
+    try await sharedReader.load(
+      .fetch(
+        FetchOneStatementOptionalValueRequest(statement: statement),
+        database: database,
+        scheduler: scheduler
+      )
+    )
+  }
+
+  /// Replaces the wrapped value with data from the given query.
+  ///
+  /// - Parameters:
+  ///   - statement: A query associated with the wrapped value.
+  ///   - database: The database to read from. A value of `nil` will use the default database
+  ///     (`@Dependency(\.defaultDatabase)`).
+  ///   - scheduler: The scheduler to observe from. By default, database observation is performed
+  ///     asynchronously on the main queue.
+  public func load<S: StructuredQueriesCore.Statement>(
+    _ statement: S,
+    database: (any DatabaseReader)? = nil,
+    scheduler: some ValueObservationScheduler & Hashable
+  ) async throws
+  where
+    Value: _OptionalProtocol,
+    S.QueryValue: QueryRepresentable,
+    S.QueryValue: _OptionalProtocol,
+    Value == S.QueryValue.QueryOutput
+  {
+    try await sharedReader.load(
+      .fetch(
+        FetchOneStatementOptionalProtocolRequest(statement: statement),
+        database: database,
+        scheduler: scheduler
+      )
+    )
+  }
+
+  /// Replaces the wrapped value with data from the given query.
+  ///
+  /// - Parameters:
+  ///   - statement: A query associated with the wrapped value.
+  ///   - database: The database to read from. A value of `nil` will use the default database
+  ///     (`@Dependency(\.defaultDatabase)`).
+  ///   - scheduler: The scheduler to observe from. By default, database observation is performed
+  ///     asynchronously on the main queue.
+  public func load(
+    _ statement: some StructuredQueriesCore.Statement<Value>,
+    database: (any DatabaseReader)? = nil,
+    scheduler: some ValueObservationScheduler & Hashable
+  ) async throws
+  where
+    Value: QueryRepresentable,
+    Value: _OptionalProtocol,
+    Value.QueryOutput == Value
+  {
+    try await sharedReader.load(
+      .fetch(
+        FetchOneStatementOptionalProtocolRequest(statement: statement),
+        database: database,
+        scheduler: scheduler
+      )
+    )
+  }
 }
 
 extension FetchOne: Equatable where Value: Equatable {
@@ -480,6 +826,48 @@ extension FetchOne: Equatable where Value: Equatable {
       sharedReader.update()
     }
 
+    /// Initializes this property with a query that fetches the first row from a table.
+    ///
+    /// - Parameters:
+    ///   - wrappedValue: A default value to associate with this property.
+    ///   - database: The database to read from. A value of `nil` will use the default database
+    ///     (`@Dependency(\.defaultDatabase)`).
+    ///   - animation: The animation to use for user interface changes that result from changes to
+    ///     the fetched results.
+    @available(iOS 17, macOS 14, tvOS 17, watchOS 10, *)
+    public init(
+      wrappedValue: sending Value,
+      database: (any DatabaseReader)? = nil,
+      animation: Animation
+    )
+    where
+      Value: StructuredQueriesCore.Table & QueryRepresentable, Value.QueryOutput == Value
+    {
+      self.init(wrappedValue: wrappedValue, database: database, scheduler: .animation(animation))
+    }
+
+    /// Initializes this property with a query that fetches the first row from a table.
+    ///
+    /// - Parameters:
+    ///   - wrappedValue: A default value to associate with this property.
+    ///   - database: The database to read from. A value of `nil` will use the default database
+    ///     (`@Dependency(\.defaultDatabase)`).
+    ///   - animation: The animation to use for user interface changes that result from changes to
+    ///     the fetched results.
+    @available(iOS 17, macOS 14, tvOS 17, watchOS 10, *)
+    public init(
+      wrappedValue: sending Value,
+      database: (any DatabaseReader)? = nil,
+      animation: Animation
+    )
+    where
+      Value: _OptionalProtocol,
+      Value: StructuredQueriesCore.Table,
+      Value.QueryOutput == Value
+    {
+      self.init(wrappedValue: wrappedValue, database: database, scheduler: .animation(animation))
+    }
+
     /// Initializes this property with a query associated with the wrapped value.
     ///
     /// - Parameters:
@@ -489,8 +877,9 @@ extension FetchOne: Equatable where Value: Equatable {
     ///     (`@Dependency(\.defaultDatabase)`).
     ///   - animation: The animation to use for user interface changes that result from changes to
     ///     the fetched results.
+    @available(iOS 17, macOS 14, tvOS 17, watchOS 10, *)
     public init<S: SelectStatement>(
-      wrappedValue: S.From.QueryOutput,
+      wrappedValue: Value,
       _ statement: S,
       database: (any DatabaseReader)? = nil,
       animation: Animation
@@ -517,8 +906,9 @@ extension FetchOne: Equatable where Value: Equatable {
     ///     (`@Dependency(\.defaultDatabase)`).
     ///   - animation: The animation to use for user interface changes that result from changes to
     ///     the fetched results.
+    @available(iOS 17, macOS 14, tvOS 17, watchOS 10, *)
     public init<V: QueryRepresentable>(
-      wrappedValue: V.QueryOutput,
+      wrappedValue: Value,
       _ statement: some StructuredQueriesCore.Statement<V>,
       database: (any DatabaseReader)? = nil,
       animation: Animation
@@ -543,6 +933,34 @@ extension FetchOne: Equatable where Value: Equatable {
     ///     (`@Dependency(\.defaultDatabase)`).
     ///   - animation: The animation to use for user interface changes that result from changes to
     ///     the fetched results.
+    @available(iOS 17, macOS 14, tvOS 17, watchOS 10, *)
+    public init<V: QueryRepresentable>(
+      wrappedValue: Value = nil,
+      _ statement: some StructuredQueriesCore.Statement<V>,
+      database: (any DatabaseReader)? = nil,
+      animation: Animation
+    )
+    where
+      Value == V.QueryOutput?
+    {
+      self.init(
+        wrappedValue: wrappedValue,
+        statement,
+        database: database,
+        scheduler: .animation(animation)
+      )
+    }
+
+    /// Initializes this property with a query associated with the wrapped value.
+    ///
+    /// - Parameters:
+    ///   - wrappedValue: A default value to associate with this property.
+    ///   - statement: A query associated with the wrapped value.
+    ///   - database: The database to read from. A value of `nil` will use the default database
+    ///     (`@Dependency(\.defaultDatabase)`).
+    ///   - animation: The animation to use for user interface changes that result from changes to
+    ///     the fetched results.
+    @available(iOS 17, macOS 14, tvOS 17, watchOS 10, *)
     public init<S: StructuredQueriesCore.Statement<Value>>(
       wrappedValue: Value,
       _ statement: S,
@@ -564,48 +982,30 @@ extension FetchOne: Equatable where Value: Equatable {
     /// Initializes this property with a query associated with an optional value.
     ///
     /// - Parameters:
-    ///   - statement: A query associated with the wrapped value.
-    ///   - database: The database to read from. A value of `nil` will use the default database
-    ///     (`@Dependency(\.defaultDatabase)`).
-    ///   - animation: The animation to use for user interface changes that result from changes to
-    ///     the fetched results.
-    public init<S: SelectStatement>(
-      _ statement: S,
-      database: (any DatabaseReader)? = nil,
-      animation: Animation
-    )
-    where
-      Value == S.From.QueryOutput?,
-      S.QueryValue == (),
-      S.Joins == ()
-    {
-      let statement = statement.selectStar().asSelect().limit(1)
-      self.init(statement, database: database, animation: animation)
-    }
-
-    /// Initializes this property with a query associated with an optional value.
-    ///
-    /// - Parameters:
     ///   - wrappedValue: A default value to associate with this property.
     ///   - statement: A query associated with the wrapped value.
     ///   - database: The database to read from. A value of `nil` will use the default database
     ///     (`@Dependency(\.defaultDatabase)`).
     ///   - animation: The animation to use for user interface changes that result from changes to
     ///     the fetched results.
-    public init<S: StructuredQueriesCore.Statement>(
+    @available(iOS 17, macOS 14, tvOS 17, watchOS 10, *)
+    public init<S: SelectStatement>(
+      wrappedValue: Value = ._none,
       _ statement: S,
       database: (any DatabaseReader)? = nil,
       animation: Animation
     )
     where
-      S.QueryValue: QueryRepresentable,
-      Value == S.QueryValue.QueryOutput?
+      Value: _OptionalProtocol,
+      Value == S.From.QueryOutput?,
+      S.QueryValue == (),
+      S.Joins == ()
     {
       self.init(
-        wrappedValue: nil,
-        SQLQueryExpression(statement.query, as: S.QueryValue?.self),
+        wrappedValue: wrappedValue,
+        statement,
         database: database,
-        animation: animation
+        scheduler: .animation(animation)
       )
     }
 
@@ -618,20 +1018,53 @@ extension FetchOne: Equatable where Value: Equatable {
     ///     (`@Dependency(\.defaultDatabase)`).
     ///   - animation: The animation to use for user interface changes that result from changes to
     ///     the fetched results.
-    public init<V: QueryRepresentable>(
-      _ statement: some StructuredQueriesCore.Statement<V>,
+    @available(iOS 17, macOS 14, tvOS 17, watchOS 10, *)
+    public init<S: StructuredQueriesCore.Statement>(
+      wrappedValue: Value = ._none,
+      _ statement: S,
       database: (any DatabaseReader)? = nil,
       animation: Animation
     )
     where
-      V.QueryOutput == V,
-      Value == V?
+      Value: _OptionalProtocol,
+      S.QueryValue: QueryRepresentable,
+      S.QueryValue: _OptionalProtocol,
+      Value == S.QueryValue.QueryOutput
     {
       self.init(
-        wrappedValue: nil,
-        SQLQueryExpression(statement.query, as: V?.self),
+        wrappedValue: wrappedValue,
+        statement,
         database: database,
-        animation: animation
+        scheduler: .animation(animation)
+      )
+    }
+
+    /// Initializes this property with a query associated with an optional value.
+    ///
+    /// - Parameters:
+    ///   - wrappedValue: A default value to associate with this property.
+    ///   - statement: A query associated with the wrapped value.
+    ///   - database: The database to read from. A value of `nil` will use the default database
+    ///     (`@Dependency(\.defaultDatabase)`).
+    ///   - animation: The animation to use for user interface changes that result from changes to
+    ///     the fetched results.
+    @available(iOS 17, macOS 14, tvOS 17, watchOS 10, *)
+    public init(
+      wrappedValue: Value = ._none,
+      _ statement: some StructuredQueriesCore.Statement<Value>,
+      database: (any DatabaseReader)? = nil,
+      animation: Animation
+    )
+    where
+      Value: QueryRepresentable,
+      Value: _OptionalProtocol,
+      Value.QueryOutput == Value
+    {
+      self.init(
+        wrappedValue: wrappedValue,
+        statement,
+        database: database,
+        scheduler: .animation(animation)
       )
     }
 
@@ -643,6 +1076,7 @@ extension FetchOne: Equatable where Value: Equatable {
     ///     (`@Dependency(\.defaultDatabase)`).
     ///   - animation: The animation to use for user interface changes that result from changes to
     ///     the fetched results.
+    @available(iOS 17, macOS 14, tvOS 17, watchOS 10, *)
     public func load<S: SelectStatement>(
       _ statement: S,
       database: (any DatabaseReader)? = nil,
@@ -664,6 +1098,7 @@ extension FetchOne: Equatable where Value: Equatable {
     ///     (`@Dependency(\.defaultDatabase)`).
     ///   - animation: The animation to use for user interface changes that result from changes to
     ///     the fetched results.
+    @available(iOS 17, macOS 14, tvOS 17, watchOS 10, *)
     public func load<V: QueryRepresentable>(
       _ statement: some StructuredQueriesCore.Statement<V>,
       database: (any DatabaseReader)? = nil,
@@ -674,14 +1109,129 @@ extension FetchOne: Equatable where Value: Equatable {
     {
       try await load(statement, database: database, scheduler: .animation(animation))
     }
+
+    /// Replaces the wrapped value with data from the given query.
+    ///
+    /// - Parameters:
+    ///   - statement: A query associated with the wrapped value.
+    ///   - database: The database to read from. A value of `nil` will use the default database
+    ///     (`@Dependency(\.defaultDatabase)`).
+    ///   - animation: The animation to use for user interface changes that result from changes to
+    ///     the fetched results.
+    @available(iOS 17, macOS 14, tvOS 17, watchOS 10, *)
+    public func load<V: QueryRepresentable>(
+      _ statement: some StructuredQueriesCore.Statement<V>,
+      database: (any DatabaseReader)? = nil,
+      animation: Animation
+    ) async throws
+    where
+      Value == V.QueryOutput?
+    {
+      try await load(statement, database: database, scheduler: .animation(animation))
+    }
+
+    /// Replaces the wrapped value with data from the given query.
+    ///
+    /// - Parameters:
+    ///   - statement: A query associated with the wrapped value.
+    ///   - database: The database to read from. A value of `nil` will use the default database
+    ///     (`@Dependency(\.defaultDatabase)`).
+    ///   - animation: The animation to use for user interface changes that result from changes to
+    ///     the fetched results.
+    @available(iOS 17, macOS 14, tvOS 17, watchOS 10, *)
+    public func load<S: SelectStatement>(
+      _ statement: S,
+      database: (any DatabaseReader)? = nil,
+      animation: Animation
+    ) async throws
+    where
+      Value: _OptionalProtocol,
+      Value == S.From.QueryOutput?,
+      S.QueryValue == (),
+      S.Joins == ()
+    {
+      try await load(statement, database: database, scheduler: .animation(animation))
+    }
+
+    /// Replaces the wrapped value with data from the given query.
+    ///
+    /// - Parameters:
+    ///   - statement: A query associated with the wrapped value.
+    ///   - database: The database to read from. A value of `nil` will use the default database
+    ///     (`@Dependency(\.defaultDatabase)`).
+    ///   - animation: The animation to use for user interface changes that result from changes to
+    ///     the fetched results.
+    @available(iOS 17, macOS 14, tvOS 17, watchOS 10, *)
+    public func load<S: StructuredQueriesCore.Statement>(
+      _ statement: S,
+      database: (any DatabaseReader)? = nil,
+      animation: Animation
+    ) async throws
+    where
+      Value: _OptionalProtocol,
+      S.QueryValue: QueryRepresentable,
+      S.QueryValue: _OptionalProtocol,
+      Value == S.QueryValue.QueryOutput
+    {
+      try await load(statement, database: database, scheduler: .animation(animation))
+    }
+
+    /// Replaces the wrapped value with data from the given query.
+    ///
+    /// - Parameters:
+    ///   - statement: A query associated with the wrapped value.
+    ///   - database: The database to read from. A value of `nil` will use the default database
+    ///     (`@Dependency(\.defaultDatabase)`).
+    ///   - animation: The animation to use for user interface changes that result from changes to
+    ///     the fetched results.
+    @available(iOS 17, macOS 14, tvOS 17, watchOS 10, *)
+    public func load(
+      _ statement: some StructuredQueriesCore.Statement<Value>,
+      database: (any DatabaseReader)? = nil,
+      animation: Animation
+    ) async throws
+    where
+      Value: QueryRepresentable,
+      Value: _OptionalProtocol,
+      Value.QueryOutput == Value
+    {
+      try await load(statement, database: database, scheduler: .animation(animation))
+    }
   }
 #endif
 
 private struct FetchOneStatementValueRequest<Value: QueryRepresentable>: StatementKeyRequest {
-  let statement: any StructuredQueriesCore.Statement<Value>
+  let statement: SQLQueryExpression<Value>
+  init(statement: some StructuredQueriesCore.Statement<Value>) {
+    self.statement = SQLQueryExpression(statement)
+  }
   func fetch(_ db: Database) throws -> Value.QueryOutput {
     guard let result = try statement.fetchOne(db)
     else { throw NotFound() }
     return result
+  }
+}
+
+private struct FetchOneStatementOptionalValueRequest<Value: QueryRepresentable>:
+  StatementKeyRequest
+{
+  let statement: SQLQueryExpression<Value>
+  init(statement: some StructuredQueriesCore.Statement<Value>) {
+    self.statement = SQLQueryExpression(statement)
+  }
+  func fetch(_ db: Database) throws -> Value.QueryOutput? {
+    try statement.fetchOne(db)
+  }
+}
+
+private struct FetchOneStatementOptionalProtocolRequest<
+  Value: QueryRepresentable & _OptionalProtocol
+>: StatementKeyRequest where Value.QueryOutput: _OptionalProtocol {
+  let statement: SQLQueryExpression<Value>
+  init(statement: some StructuredQueriesCore.Statement<Value>) {
+    self.statement = SQLQueryExpression(statement)
+  }
+  func fetch(_ db: Database) throws -> Value.QueryOutput {
+    try statement.fetchOne(db) ?? ._none
   }
 }

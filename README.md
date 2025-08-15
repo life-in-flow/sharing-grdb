@@ -1,8 +1,13 @@
+> [!IMPORTANT]
+> We are currently running a [public beta] to preview our upcoming CloudKit synchronization tools. Get all the details [here](https://www.pointfree.co/blog/posts/181-a-swiftdata-alternative-with-sqlite-cloudkit-public-beta) and let us know if you have any feedback!
+
+[public beta]: https://github.com/pointfreeco/sharing-grdb/pull/112
+
 # SharingGRDB
 
 A [fast](#Performance), lightweight replacement for SwiftData, powered by SQL.
 
-[![CI](https://github.com/pointfreeco/sharing-grdb/workflows/CI/badge.svg)](https://github.com/pointfreeco/sharing-grdb/actions?query=workflow%3ACI)
+[![CI](https://github.com/pointfreeco/sharing-grdb/actions/workflows/ci.yml/badge.svg)](https://github.com/pointfreeco/sharing-grdb/actions/workflows/ci.yml)
 [![Slack](https://img.shields.io/badge/slack-chat-informational.svg?label=Slack&logo=slack)](https://www.pointfree.co/slack-invite)
 [![](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fpointfreeco%2Fsharing-grdb%2Fbadge%3Ftype%3Dswift-versions)](https://swiftpackageindex.com/pointfreeco/sharing-grdb)
 [![](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fpointfreeco%2Fsharing-grdb%2Fbadge%3Ftype%3Dplatforms)](https://swiftpackageindex.com/pointfreeco/sharing-grdb)
@@ -27,8 +32,8 @@ Swift language, hosted by [Brandon Williams](https://twitter.com/mbrandonw) and
 [Stephen Celis](https://twitter.com/stephencelis). To support the continued development of this
 library, [subscribe today](https://www.pointfree.co/pricing).
 
-<a href="https://www.pointfree.co/collections/sqlite/sharing-with-sqlite">
-  <img alt="video poster image" src="https://d3rccdn33rt8ze.cloudfront.net/episodes/0309.jpeg" width="600">
+<a href="https://www.pointfree.co/collections/modern-persistence">
+  <img alt="video poster image" src="https://d3rccdn33rt8ze.cloudfront.net/episodes/0325.jpeg" width="600">
 </a>
 
 ## Overview
@@ -154,15 +159,57 @@ struct MyApp: App {
 > [Preparing a SQLite database][preparing-db-article].
 
 This `defaultDatabase` connection is used implicitly by SharingGRDB's strategies, like 
-[`@FetchAll`][fetchall-docs] and [`@FetchOne`][fetchone-docs]:
+[`@FetchAll`][fetchall-docs] and [`@FetchOne`][fetchone-docs], which are similar to SwiftData's
+`@Query` macro, but more powerful:
+
+<table>
+<tr>
+<th>SharingGRDB</th>
+<th>SwiftData</th>
+</tr>
+<tr valign=top>
+<td width=415>
 
 ```swift
 @FetchAll
 var items: [Item]
 
-@FetchOne(Item.where(\.isInStock).count())
+@FetchAll(Item.order(by: \.title))
+var items
+
+@FetchAll(Item.where(\.isInStock))
+var items
+
+
+
+@FetchOne(Item.count())
 var inStockItemsCount = 0
+
 ```
+
+</td>
+<td width=415>
+
+```swift
+@Query
+var items: [Item]
+
+@Query(sort: [SortDescriptor(\.title)])
+var items: [Item]
+
+@Query(filter: #Predicate<Item> {
+  $0.isInStock
+})
+var items: [Item]
+
+// No @Query equivalent of counting
+// entries in database without loading
+// all entries.
+```
+
+</td>
+</tr>
+</table>
 
 And you can access this database throughout your application in a way similar to how one accesses
 a model context, via a property wrapper:
@@ -196,6 +243,7 @@ var modelContext
 let newItem = Item(/* ... */)
 modelContext.insert(newItem)
 try modelContext.save()
+
 ```
 
 </td>
@@ -324,7 +372,7 @@ simple as adding it to your `Package.swift`:
 
 ``` swift
 dependencies: [
-  .package(url: "https://github.com/pointfreeco/sharing-grdb", from: "0.4.0")
+  .package(url: "https://github.com/pointfreeco/sharing-grdb", from: "0.5.0")
 ]
 ```
 

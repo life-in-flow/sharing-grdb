@@ -81,9 +81,7 @@ public struct FetchAll<Element: Sendable>: Sendable {
 
   /// Initializes this property with a default value.
   @_disfavoredOverload
-  public init(
-    wrappedValue: [Element] = []
-  ) {
+  public init(wrappedValue: [Element] = []) {
     sharedReader = SharedReader(value: wrappedValue)
   }
 
@@ -366,6 +364,7 @@ extension FetchAll: Equatable where Element: Equatable {
     ///     (`@Dependency(\.defaultDatabase)`).
     ///   - animation: The animation to use for user interface changes that result from changes to
     ///     the fetched results.
+    @available(iOS 17, macOS 14, tvOS 17, watchOS 10, *)
     public init(
       wrappedValue: [Element] = [],
       database: (any DatabaseReader)? = nil,
@@ -383,6 +382,7 @@ extension FetchAll: Equatable where Element: Equatable {
     ///     (`@Dependency(\.defaultDatabase)`).
     ///   - animation: The animation to use for user interface changes that result from changes to
     ///     the fetched results.
+    @available(iOS 17, macOS 14, tvOS 17, watchOS 10, *)
     public init<S: SelectStatement>(
       wrappedValue: [Element] = [],
       _ statement: S,
@@ -411,6 +411,7 @@ extension FetchAll: Equatable where Element: Equatable {
     ///     (`@Dependency(\.defaultDatabase)`).
     ///   - animation: The animation to use for user interface changes that result from changes to
     ///     the fetched results.
+    @available(iOS 17, macOS 14, tvOS 17, watchOS 10, *)
     public init<V: QueryRepresentable>(
       wrappedValue: [Element] = [],
       _ statement: some StructuredQueriesCore.Statement<V>,
@@ -437,6 +438,7 @@ extension FetchAll: Equatable where Element: Equatable {
     ///     (`@Dependency(\.defaultDatabase)`).
     ///   - animation: The animation to use for user interface changes that result from changes to
     ///     the fetched results.
+    @available(iOS 17, macOS 14, tvOS 17, watchOS 10, *)
     public init<S: StructuredQueriesCore.Statement<Element>>(
       wrappedValue: [Element] = [],
       _ statement: S,
@@ -463,6 +465,7 @@ extension FetchAll: Equatable where Element: Equatable {
     ///     (`@Dependency(\.defaultDatabase)`).
     ///   - animation: The animation to use for user interface changes that result from changes to
     ///     the fetched results.
+    @available(iOS 17, macOS 14, tvOS 17, watchOS 10, *)
     public func load<S: SelectStatement>(
       _ statement: S,
       database: (any DatabaseReader)? = nil,
@@ -486,6 +489,7 @@ extension FetchAll: Equatable where Element: Equatable {
     ///     (`@Dependency(\.defaultDatabase)`).
     ///   - animation: The animation to use for user interface changes that result from changes to
     ///     the fetched results.
+    @available(iOS 17, macOS 14, tvOS 17, watchOS 10, *)
     public func load<V: QueryRepresentable>(
       _ statement: some StructuredQueriesCore.Statement<V>,
       database: (any DatabaseReader)? = nil,
@@ -507,7 +511,10 @@ extension FetchAll: Equatable where Element: Equatable {
 #endif
 
 private struct FetchAllStatementValueRequest<Value: QueryRepresentable>: StatementKeyRequest {
-  let statement: any StructuredQueriesCore.Statement<Value>
+  let statement: SQLQueryExpression<Value>
+  init(statement: some StructuredQueriesCore.Statement<Value>) {
+    self.statement = SQLQueryExpression(statement)
+  }
   func fetch(_ db: Database) throws -> [Value.QueryOutput] {
     try statement.fetchAll(db)
   }
