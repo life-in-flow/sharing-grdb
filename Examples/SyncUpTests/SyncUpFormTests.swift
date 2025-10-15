@@ -1,7 +1,6 @@
 import Dependencies
 import DependenciesTestSupport
 import Foundation
-import GRDB
 import StructuredQueries
 import Testing
 
@@ -9,8 +8,10 @@ import Testing
 
 @Suite(
   .dependencies {
-    $0.defaultDatabase = try! SyncUps.appDatabase()
-    try! $0.defaultDatabase.write { try $0.seedSyncUpFormTests() }
+    try $0.bootstrapDatabase()
+    try $0.defaultDatabase.write { db in
+      try db.seed()
+    }
     $0.uuid = .incrementing
   }
 )

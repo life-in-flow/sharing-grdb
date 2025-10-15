@@ -1,5 +1,7 @@
 import CasePaths
-import SharingGRDB
+import CloudKit
+import SQLiteData
+import Sharing
 import SwiftUI
 import SwiftUINavigation
 
@@ -7,13 +9,16 @@ import SwiftUINavigation
 @Observable
 class RemindersDetailModel: HashableObject {
   @ObservationIgnored @FetchAll var reminderRows: [Row]
+  @ObservationIgnored @FetchOne var coverImageData: Data?
   @ObservationIgnored @Shared var ordering: Ordering
   @ObservationIgnored @Shared var showCompleted: Bool
 
   let detailType: DetailType
   var isNewReminderSheetPresented = false
+  var sharedRecord: SharedRecord?
 
   @ObservationIgnored @Dependency(\.defaultDatabase) private var database
+  @ObservationIgnored @Dependency(\.defaultSyncEngine) private var syncEngine
 
   init(detailType: DetailType) {
     self.detailType = detailType
@@ -22,7 +27,15 @@ class RemindersDetailModel: HashableObject {
       wrappedValue: detailType == .completed,
       .appStorage("show_completed_list_\(detailType.id)")
     )
-    _reminderRows = FetchAll(remindersQuery)
+    _reminderRows = FetchAll(remindersQuery, animation: .default)
+    if let remindersListID = detailType.remindersList?.id {
+      _coverImageData = FetchOne(
+        RemindersListAsset
+          .where { $0.remindersListID.eq(remindersListID) }
+          .select(\.coverImage),
+        animation: .default
+      )
+    }
   }
 
   func orderingButtonTapped(_ ordering: Ordering) async {
@@ -46,7 +59,7 @@ class RemindersDetailModel: HashableObject {
             let ids = Array(ids.enumerated())
             let (first, rest) = (ids.first!, ids.dropFirst())
             $0.position =
-            rest
+              rest
               .reduce(Case($0.id).when(first.element, then: first.offset)) { cases, id in
                 cases.when(id.element, then: id.offset)
               }
@@ -58,7 +71,17 @@ class RemindersDetailModel: HashableObject {
     $ordering.withLock { $0 = .manual }
     await updateQuery()
   }
-  
+
+  func shareButtonTapped() async {
+    guard let remindersList = detailType.remindersList
+    else { return }
+    sharedRecord = await withErrorReporting {
+      try await syncEngine.share(record: remindersList) { share in
+        share[CKShare.SystemFieldKey.title] = remindersList.title
+      }
+    }
+  }
+
   private func updateQuery() async {
     await withErrorReporting {
       try await $reminderRows.load(remindersQuery, animation: .default)
@@ -66,14 +89,19 @@ class RemindersDetailModel: HashableObject {
   }
 
   private var remindersQuery: some StructuredQueriesCore.Statement<Row> {
-    let query =
     Reminder
       .where {
         if !showCompleted {
-          !$0.isCompleted
+          $0.status.neq(Reminder.Status.completed)
         }
       }
-      .order { $0.isCompleted }
+      .order {
+        if showCompleted {
+          $0.isCompleted
+        } else {
+          $0.status.eq(Reminder.Status.completed)
+        }
+      }
       .order {
         switch ordering {
         case .dueDate: $0.dueDate.asc(nulls: .last)
@@ -90,21 +118,21 @@ class RemindersDetailModel: HashableObject {
         case .flagged: reminder.isFlagged
         case .remindersList(let list): reminder.remindersListID.eq(list.id)
         case .scheduled: reminder.isScheduled
-        case .tags(let tags): tag.id.ifnull(UUID(0)).in(tags.map(\.id))
+        case .tags(let tags): tag.primaryKey.ifnull("").in(tags.map(\.primaryKey))
         case .today: reminder.isToday
         }
       }
       .join(RemindersList.all) { $0.remindersListID.eq($3.id) }
+      .join(ReminderText.all) { $0.rowid.eq($4.rowid) }
       .select {
         Row.Columns(
           reminder: $0,
           remindersList: $3,
           isPastDue: $0.isPastDue,
-          notes: $0.inlineNotes.substr(0, 200),
-          tags: #sql("\($2.jsonNames)")
+          notes: $4.notes.substr(0, 200),
+          tags: $4.tags
         )
       }
-    return query
   }
 
   enum Ordering: String, CaseIterable {
@@ -141,8 +169,7 @@ class RemindersDetailModel: HashableObject {
     let remindersList: RemindersList
     let isPastDue: Bool
     let notes: String
-    @Column(as: [String].JSONRepresentation.self)
-    let tags: [String]
+    let tags: String
   }
 }
 
@@ -154,15 +181,7 @@ struct RemindersDetailView: View {
 
   var body: some View {
     List {
-      VStack(alignment: .leading) {
-        GeometryReader { proxy in
-          Text(model.detailType.navigationTitle)
-            .font(.system(.largeTitle, design: .rounded, weight: .bold))
-            .foregroundStyle(model.detailType.color)
-            .onAppear { navigationTitleHeight = proxy.size.height }
-        }
-      }
-      .listRowSeparator(.hidden)
+      header
       ForEach(model.reminderRows) { row in
         ReminderRow(
           color: model.detailType.color,
@@ -191,9 +210,12 @@ struct RemindersDetailView: View {
             reminder: Reminder.Draft(remindersListID: remindersList.id),
             remindersList: remindersList
           )
-            .navigationTitle("New Reminder")
+          .navigationTitle("New Reminder")
         }
       }
+    }
+    .sheet(item: $model.sharedRecord) { sharedRecord in
+      CloudSharingView(sharedRecord: sharedRecord)
     }
     .toolbar {
       ToolbarItem(placement: .principal) {
@@ -221,36 +243,80 @@ struct RemindersDetailView: View {
         }
       }
       ToolbarItem(placement: .primaryAction) {
-        Menu {
-          Group {
-            Menu {
-              ForEach(RemindersDetailModel.Ordering.allCases, id: \.self) { ordering in
-                Button {
-                  Task { await model.orderingButtonTapped(ordering) }
-                } label: {
-                  Text(ordering.rawValue)
-                  ordering.icon
-                }
-              }
-            } label: {
-              Text("Sort By")
-              Text(model.ordering.rawValue)
-              Image(systemName: "arrow.up.arrow.down")
-            }
+        HStack(alignment: .firstTextBaseline) {
+          if model.detailType.is(\.remindersList) {
             Button {
-              Task { await model.showCompletedButtonTapped() }
+              Task { await model.shareButtonTapped() }
             } label: {
-              Text(model.showCompleted ? "Hide Completed" : "Show Completed")
-              Image(systemName: model.showCompleted ? "eye.slash.fill" : "eye")
+              Image(systemName: "square.and.arrow.up")
             }
           }
-          .tint(model.detailType.color)
-        } label: {
-          Image(systemName: "ellipsis.circle")
+          Menu {
+            Group {
+              Menu {
+                ForEach(RemindersDetailModel.Ordering.allCases, id: \.self) { ordering in
+                  Button {
+                    Task { await model.orderingButtonTapped(ordering) }
+                  } label: {
+                    Text(ordering.rawValue)
+                    ordering.icon
+                  }
+                }
+              } label: {
+                Text("Sort By")
+                Text(model.ordering.rawValue)
+                Image(systemName: "arrow.up.arrow.down")
+              }
+              Button {
+                Task { await model.showCompletedButtonTapped() }
+              } label: {
+                Text(model.showCompleted ? "Hide Completed" : "Show Completed")
+                Image(systemName: model.showCompleted ? "eye.slash.fill" : "eye")
+              }
+            }
+            .tint(model.detailType.color)
+          } label: {
+            Image(systemName: "ellipsis.circle")
+          }
         }
       }
     }
     .toolbarTitleDisplayMode(.inline)
+  }
+
+  @ViewBuilder
+  var header: some View {
+    if let coverImageData = model.coverImageData, let image = UIImage(data: coverImageData) {
+      ZStack {
+        Image(uiImage: image)
+          .resizable()
+          .scaledToFill()
+          .frame(maxHeight: 200)
+          .clipped()
+
+        GeometryReader { proxy in
+          Text(model.detailType.navigationTitle)
+            .font(.system(.largeTitle, design: .rounded, weight: .bold))
+            .foregroundStyle(model.detailType.color)
+            .padding()
+            .background(Color.black.opacity(0.6))
+            .cornerRadius(10)
+            .padding()
+            .onAppear { navigationTitleHeight = proxy.size.height }
+        }
+      }
+      .listRowInsets(EdgeInsets())
+    } else {
+      VStack(alignment: .leading) {
+        GeometryReader { proxy in
+          Text(model.detailType.navigationTitle)
+            .font(.system(.largeTitle, design: .rounded, weight: .bold))
+            .foregroundStyle(model.detailType.color)
+            .onAppear { navigationTitleHeight = proxy.size.height }
+        }
+      }
+      .listRowSeparator(.hidden)
+    }
   }
 }
 

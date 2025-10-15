@@ -1,4 +1,4 @@
-import SharingGRDB
+import SQLiteData
 import SwiftUI
 
 struct DynamicQueryDemo: SwiftUICaseStudy {
@@ -68,8 +68,10 @@ struct DynamicQueryDemo: SwiftUICaseStudy {
             as: UTF8.self
           )
           try await database.write { db in
-            try Fact.insert(Fact.Draft(body: fact))
-              .execute(db)
+            try Fact.insert {
+              Fact.Draft(body: fact)
+            }
+            .execute(db)
           }
         }
       } catch {}
@@ -113,7 +115,7 @@ extension DatabaseWriter where Self == DatabaseQueue {
         CREATE TABLE "facts" (
           "id" INTEGER PRIMARY KEY AUTOINCREMENT,
           "body" TEXT NOT NULL
-        )
+        ) STRICT
         """
       )
       .execute(db)

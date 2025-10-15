@@ -1,5 +1,5 @@
 import IssueReporting
-import SharingGRDB
+import SQLiteData
 import SwiftUI
 
 struct ReminderFormView: View {
@@ -91,11 +91,11 @@ struct ReminderFormView: View {
           }
         }
         Picker(selection: $reminder.priority) {
-          Text("None").tag(Priority?.none)
+          Text("None").tag(Reminder.Priority?.none)
           Divider()
-          Text("High").tag(Priority.high)
-          Text("Medium").tag(Priority.medium)
-          Text("Low").tag(Priority.low)
+          Text("High").tag(Reminder.Priority.high)
+          Text("Medium").tag(Reminder.Priority.medium)
+          Text("Low").tag(Reminder.Priority.low)
         } label: {
           HStack {
             Image(systemName: "exclamationmark.circle.fill")
@@ -135,7 +135,7 @@ struct ReminderFormView: View {
         selectedTags = try await database.read { db in
           try Tag
             .order(by: \.title)
-            .join(ReminderTag.all) { $0.id.eq($1.tagID) }
+            .join(ReminderTag.all) { $0.primaryKey.eq($1.tagID) }
             .where { $1.reminderID.eq(reminderID) }
             .select { tag, _ in tag }
             .fetchAll(db)
@@ -211,7 +211,7 @@ struct ReminderFormPreview: PreviewProvider {
         let remindersList = try RemindersList.all.fetchOne(db)!
         return (
           remindersList,
-          try Reminder.where { $0.remindersListID == remindersList.id }.fetchOne(db)!
+          try Reminder.where { $0.remindersListID.eq(remindersList.id) }.fetchOne(db)!
         )
       }
     }
