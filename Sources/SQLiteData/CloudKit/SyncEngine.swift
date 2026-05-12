@@ -1543,7 +1543,7 @@
       try await userDatabase.write { db in
         try SyncMetadata
           .find(rootRecordID)
-          .update { $0.share = share }
+          .update { $0.share = #bind(share) }
           .execute(db)
       }
     }
@@ -1565,7 +1565,7 @@
               zoneID: CKRecordZone.ID(zoneName: zoneName, ownerName: ownerName)
             )
           )
-          .update { $0.share = nil }
+          .update { $0.share = #bind(nil) }
           .execute(db)
       }
     }
